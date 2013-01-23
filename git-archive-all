@@ -17,12 +17,17 @@ class GitArchiver(object):
     Automatically detects output format extension: zip, tar, bz2, or gz
     """
 
-    def __init__(self, prefix='', verbose=False, exclude=True, force_sub=False, extra=[]):
+    def __init__(self, prefix='', verbose=False, exclude=True, force_sub=False, ignore_submodules=None, extra=None):
+        if ignore_submodules is None:
+            ignore_submodules = []
+        if extra is None:
+            extra = []
         self.prefix = prefix
         self.verbose = verbose
         self.exclude = exclude
         self.extra = extra
         self.force_sub = force_sub
+        self.ignore_submodules = ignore_submodules
 
         self._excludes = []
 
@@ -131,12 +136,13 @@ class GitArchiver(object):
 
         # get paths for every submodule
         for submodule in self.runShell("git submodule --quiet foreach 'pwd'"):
-            chdir(submodule)
-            # in order to get output path we need to exclude repository path from the submodule path
-            submodule = submodule[len(git_repositary_path) + 1:]
-            # recursion allows us to process repositories with more than one level of submodules
-            for git_file in self.listFiles(git_repositary_path, submodule):
-                yield git_file
+            if submodule.split(sep)[-1] not in self.ignore_submodules:
+                chdir(submodule)
+                # in order to get output path we need to exclude repository path from the submodule path
+                submodule = submodule[len(git_repositary_path) + 1:]
+                # recursion allows us to process repositories with more than one level of submodules
+                for git_file in self.listFiles(git_repositary_path, submodule):
+                    yield git_file
 
     @staticmethod
     def runShell(cmd):
@@ -148,20 +154,22 @@ if __name__ == "__main__":
 
     parser = OptionParser(usage="usage: %prog [-v] [--prefix PREFIX] [--no-exclude] OUTPUT_FILE", version="%prog 1.4.2")
 
-    parser.add_option('--prefix', type='string', dest='prefix',
-                      default='', help="Prepend PREFIX to each filename in the archive.\
-                      OUTPUT_FILE name is used by default to avoid tarbomb.")
+    parser.add_option('--prefix', type='string', dest='prefix', default='',
+        help="Prepend PREFIX to each filename in the archive. OUTPUT_FILE name is used by default to avoid tarbomb.")
 
     parser.add_option('-v', '--verbose', action='store_true', dest='verbose', help='Enable verbose mode.')
 
     parser.add_option('--no-exclude', action='store_false', dest='exclude',
-                      default=True, help="Don't read .gitattributes files for patterns containing export-ignore attrib.")
+      default=True, help="Don't read .gitattributes files for patterns containing export-ignore attrib.")
 
     parser.add_option('--force-submodules', action='store_true', dest='force_sub',
-                      help="Force a git submodule init && git submodule update at each level before iterating submodules.")
+      help="Force a git submodule init && git submodule update at each level before iterating submodules.")
+
+    parser.add_option('--ignore-submodule', action='append', dest='ignore_submodules',
+        help="Ignore specific submodules for export.  Add option as many times as needed.")
 
     parser.add_option('--extra', action='append', dest='extra', default=[],
-                      help="Any additional files to include in the archive.")
+      help="Any additional files to include in the archive.")
 
     options, args = parser.parse_args()
 
@@ -182,11 +190,8 @@ if __name__ == "__main__":
         output_name = re.sub('(\.zip|\.tar|\.tgz|\.gz|\.bz2|\.tar\.gz|\.tar\.bz2)$', '', output_name) or 'archive'
         options.prefix = path.join(output_name, '')
 
-    archiver = GitArchiver(options.prefix,
-                           options.verbose,
-                           options.exclude,
-                           options.force_sub,
-                           options.extra)
+    archiver = GitArchiver(options.prefix, options.verbose, options.exclude,
+        options.force_sub, options.ignore_submodules, options.extra)
 
     try:
         archiver.create(output_filepath)
